@@ -4,6 +4,28 @@ from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 import re
 
+# 보안 위협 관련 키워드 (이 키워드가 포함된 기사만 필터링)
+THREAT_KEYWORDS = [
+    # 공격/위협
+    '취약점', '해킹', '해커', '랜섬웨어', '악성코드', '멀웨어', '피싱', '스미싱',
+    '침해', '공격', '유출', '탈취', '감염', '익스플로잇', '백도어', '트로이목마',
+    # 기술 용어
+    'CVE', 'APT', 'DDoS', '제로데이', '0-day', 'RCE', 'XSS', 'SQL인젝션',
+    '버퍼오버플로우', '권한상승', '원격코드', '인젝션',
+    # 대상
+    '북한', '중국', '러시아', '사이버전', '국가지원',
+    # 기타
+    '보안패치', '긴급패치', '업데이트 권고', '주의보', '경보'
+]
+
+def contains_threat_keyword(title):
+    """제목에 위협 키워드가 포함되어 있는지 확인"""
+    title_lower = title.lower()
+    for keyword in THREAT_KEYWORDS:
+        if keyword.lower() in title_lower:
+            return True
+    return False
+
 def get_hacker_news(limit=5):
     """The Hacker News RSS 수집"""
     feed = feedparser.parse("https://feeds.feedburner.com/TheHackersNews")
@@ -76,34 +98,40 @@ def get_kisa_notices(limit=5):
         return []
     
 def get_boannews(limit=5):
-    """보안뉴스 RSS 수집"""
+    """보안뉴스 RSS 수집 (위협 키워드 필터링)"""
     try:
         feed = feedparser.parse("https://www.boannews.com/media/news_rss.xml")
-        
+
         articles = []
-        for entry in feed.entries[:limit]:
-            articles.append({
-                'title': entry.title,
-                'link': entry.link,
-            })
-        
+        for entry in feed.entries:
+            if contains_threat_keyword(entry.title):
+                articles.append({
+                    'title': entry.title,
+                    'link': entry.link,
+                })
+                if len(articles) >= limit:
+                    break
+
         return articles
     except Exception as e:
         print(f"보안뉴스 수집 오류: {e}")
         return []
 
 def get_dailysecu(limit=5):
-    """데일리시큐 RSS 수집"""
+    """데일리시큐 RSS 수집 (위협 키워드 필터링)"""
     try:
         feed = feedparser.parse("https://www.dailysecu.com/rss/allArticle.xml")
-        
+
         articles = []
-        for entry in feed.entries[:limit]:
-            articles.append({
-                'title': entry.title,
-                'link': entry.link,
-            })
-        
+        for entry in feed.entries:
+            if contains_threat_keyword(entry.title):
+                articles.append({
+                    'title': entry.title,
+                    'link': entry.link,
+                })
+                if len(articles) >= limit:
+                    break
+
         return articles
     except Exception as e:
         print(f"데일리시큐 수집 오류: {e}")

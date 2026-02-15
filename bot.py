@@ -295,10 +295,8 @@ async def post_init(application):
     global bot_instance
     bot_instance = application.bot
     
-    # 매일 아침 9시 브리핑
+    # 매일 아침 9시 브리핑 (하루 1회)
     scheduler.add_job(send_daily_security_briefing, CronTrigger(hour=9, minute=0))
-    # 6시간마다 긴급 CVE 체크
-    scheduler.add_job(check_critical_cve, 'interval', hours=6)
     scheduler.start()
     print("⏰ 스케줄러 시작됨")
 
