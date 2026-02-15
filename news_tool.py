@@ -183,95 +183,96 @@ def get_recent_cves(limit=5, severity="HIGH"):
 
 def get_daily_briefing():
     """일일 보안 브리핑 생성"""
-    briefing = "🛡️ **일일 보안 브리핑**\n"
-    briefing += f"📆 {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
-    
+    briefing = "🛡️ 일일 보안 브리핑\n"
+    briefing += f"📆 {datetime.now().strftime('%Y-%m-%d %H:%M')}\n"
+    briefing += "━━━━━━━━━━━━━━━\n\n"
+
     # 해커뉴스
-    briefing += "📰 **The Hacker News**\n"
+    briefing += "📰 The Hacker News\n"
     for article in get_hacker_news(3):
         briefing += f"• {article['title'][:60]}...\n"
     briefing += "\n"
-    
+
     # 보안뉴스 (한국)
-    briefing += "🇰🇷 **보안뉴스**\n"
+    briefing += "🇰🇷 보안뉴스\n"
     for article in get_boannews(3):
         briefing += f"• {article['title'][:50]}...\n"
     briefing += "\n"
-    
+
     # 데일리시큐 (한국)
-    briefing += "🇰🇷 **데일리시큐**\n"
+    briefing += "🇰🇷 데일리시큐\n"
     for article in get_dailysecu(3):
         briefing += f"• {article['title'][:50]}...\n"
     briefing += "\n"
-    
+
     # BleepingComputer
-    briefing += "💻 **BleepingComputer**\n"
+    briefing += "💻 BleepingComputer\n"
     for article in get_bleeping_computer(3):
         briefing += f"• {article['title'][:60]}...\n"
     briefing += "\n"
-    
+
     # CVE
     cves = get_recent_cves(3)
     if cves:
-        briefing += "🚨 **주요 CVE (HIGH+)**\n"
+        briefing += "🚨 주요 CVE (HIGH+)\n"
         for cve in cves:
             briefing += f"• {cve['id']} (CVSS: {cve['score']})\n"
-    
+
     return briefing
 
 def get_news_with_links(source="all", limit=5):
     """링크 포함 뉴스 조회"""
     result = ""
-    
+
     if source in ["all", "hackernews"]:
-        result += "📰 **The Hacker News**\n\n"
+        result += "📰 The Hacker News\n"
         for article in get_hacker_news(limit):
-            result += f"• [{article['title'][:50]}...]({article['link']})\n"
+            result += f"• {article['title'][:50]}...\n  {article['link']}\n"
         result += "\n"
-        
+
     if source in ["all", "boannews"]:
-        result += "🇰🇷 **보안뉴스**\n\n"
+        result += "🇰🇷 보안뉴스\n"
         for article in get_boannews(limit):
-            result += f"• [{article['title'][:50]}...]({article['link']})\n"
-        result += "\n"    
-        
+            result += f"• {article['title'][:50]}...\n  {article['link']}\n"
+        result += "\n"
+
     if source in ["all", "dailysecu"]:
-        result += "🇰🇷 **데일리시큐**\n\n"
+        result += "🇰🇷 데일리시큐\n"
         for article in get_dailysecu(limit):
-            result += f"• [{article['title'][:50]}...]({article['link']})\n"
+            result += f"• {article['title'][:50]}...\n  {article['link']}\n"
         result += "\n"
-    
+
     if source in ["all", "bleeping"]:
-        result += "💻 **BleepingComputer**\n\n"
+        result += "💻 BleepingComputer\n"
         for article in get_bleeping_computer(limit):
-            result += f"• [{article['title'][:50]}...]({article['link']})\n"
+            result += f"• {article['title'][:50]}...\n  {article['link']}\n"
         result += "\n"
-    
+
     if source in ["all", "reddit"]:
-        result += "🔥 **Reddit r/netsec**\n\n"
+        result += "🔥 Reddit r/netsec\n"
         for article in get_reddit_netsec(limit):
-            result += f"• [{article['title'][:50]}...]({article['link']})\n"
+            result += f"• {article['title'][:50]}...\n  {article['link']}\n"
         result += "\n"
-    
+
     if source in ["all", "kisa"]:
-        result += "🇰🇷 **ASEC 블로그 (안랩)**\n\n"
+        result += "🇰🇷 ASEC 블로그 (안랩)\n"
         for article in get_kisa_notices(limit):
-            result += f"• [{article['title'][:50]}...]({article['link']})\n"
+            result += f"• {article['title'][:50]}...\n  {article['link']}\n"
         result += "\n"
-    
+
     return result if result else "뉴스를 가져오지 못했습니다."
 
 def get_cve_details(limit=5):
     """CVE 상세 정보"""
     cves = get_recent_cves(limit)
-    
+
     if not cves:
         return "최근 주요 CVE가 없습니다."
-    
-    result = "🚨 **최근 주요 CVE (CVSS 7.0+)**\n\n"
+
+    result = "🚨 최근 주요 CVE (CVSS 7.0+)\n━━━━━━━━━━━━━━━\n\n"
     for cve in cves:
-        result += f"**{cve['id']}** (CVSS: {cve['score']})\n"
+        result += f"🔴 {cve['id']} (CVSS: {cve['score']})\n"
         result += f"{cve['description'][:150]}...\n"
-        result += f"[상세보기]({cve['link']})\n\n"
-    
+        result += f"🔗 {cve['link']}\n\n"
+
     return result

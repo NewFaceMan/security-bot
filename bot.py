@@ -122,9 +122,9 @@ async def check_critical_cve():
     if critical_cves:
         for chat_id, user_settings in settings.items():
             if user_settings.get('alert_enabled', False):
-                msg = "🚨 **긴급 CVE 알림**\n\n"
+                msg = "🚨 긴급 CVE 알림\n━━━━━━━━━━━━━━━\n\n"
                 for cve in critical_cves:
-                    msg += f"**{cve['id']}** (CVSS: {cve['score']})\n"
+                    msg += f"🔴 {cve['id']} (CVSS: {cve['score']})\n"
                     msg += f"{cve['description'][:100]}...\n\n"
                 
                 if bot_instance:
@@ -138,19 +138,20 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     set_user_setting(chat_id, 'registered', True)
     
     await update.message.reply_text(
-        "안녕하세요! 보안 학습 도우미입니다 🛡️\n\n"
-        "📰 **뉴스 & 정보**\n"
+        "안녕하세요! 보안 학습 도우미입니다 🛡️\n"
+        "━━━━━━━━━━━━━━━\n\n"
+        "📰 뉴스 & 정보\n"
         "• 보안 뉴스 / 뉴스 상세\n"
         "• CVE 알려줘\n"
         "• 브리핑\n\n"
-        "📚 **학습**\n"
+        "📚 학습\n"
         "• 문제 내줘 (DFIR 퀴즈)\n"
         "• 윈도우/메모리/네트워크 문제\n"
         "• [용어] 가 뭐야?\n"
         "• [도구] 사용법\n\n"
-        "🔔 **알림**\n"
+        "🔔 알림\n"
         "• 알림 켜줘 (매일 아침 + CVE)\n\n"
-        "💬 **자유 질문**\n"
+        "💬 자유 질문\n"
         "• 보안/포렌식 관련 뭐든 물어보세요!\n\n"
         "무엇을 도와드릴까요?"
     )
@@ -192,17 +193,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             category = ai_response.split('[ACTION:QUIZ|')[1].split(']')[0].strip()
             question, answer = get_random_question(category)
             quiz_state[chat_id] = answer
-            await update.message.reply_text(f"❓ **문제 ({category})**\n\n{question}\n\n'정답' 이라고 하면 답을 알려드릴게요!")
+            await update.message.reply_text(f"❓ 문제 ({category})\n━━━━━━━━━━━━━━━\n{question}\n\n'정답' 이라고 하면 답을 알려드릴게요!")
         
         elif '[ACTION:QUIZ]' in ai_response:
             question, answer = get_random_question()
             quiz_state[chat_id] = answer
-            await update.message.reply_text(f"❓ **문제**\n\n{question}\n\n'정답' 이라고 하면 답을 알려드릴게요!")
+            await update.message.reply_text(f"❓ 문제\n━━━━━━━━━━━━━━━\n{question}\n\n'정답' 이라고 하면 답을 알려드릴게요!")
         
         elif '[ACTION:ANSWER]' in ai_response:
             if chat_id in quiz_state:
                 answer = quiz_state[chat_id]
-                await update.message.reply_text(f"💡 **정답**\n\n{answer}")
+                await update.message.reply_text(f"💡 정답\n━━━━━━━━━━━━━━━\n{answer}")
                 del quiz_state[chat_id]
             else:
                 await update.message.reply_text("먼저 '문제 내줘'로 퀴즈를 시작해주세요!")
@@ -216,7 +217,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 # Gemini한테 직접 물어보기
                 term_prompt = f"보안/포렌식 용어 '{term}'에 대해 간단히 설명해줘. 2-3문장으로."
                 term_response = model.generate_content(term_prompt)
-                await update.message.reply_text(f"📖 **{term}**\n\n{term_response.text}")
+                await update.message.reply_text(f"📖 {term}\n━━━━━━━━━━━━━━━\n{term_response.text}")
         
         elif '[ACTION:TOOL|' in ai_response:
             tool = ai_response.split('[ACTION:TOOL|')[1].split(']')[0].strip()
@@ -226,7 +227,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 tool_prompt = f"보안/포렌식 도구 '{tool}'의 기본 사용법을 간단히 알려줘."
                 tool_response = model.generate_content(tool_prompt)
-                await update.message.reply_text(f"🔧 **{tool}**\n\n{tool_response.text}")
+                await update.message.reply_text(f"🔧 {tool}\n━━━━━━━━━━━━━━━\n{tool_response.text}")
         
         elif '[ACTION:TERM_LIST]' in ai_response:
             result = get_all_terms()
@@ -271,7 +272,7 @@ async def quiz_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     question, answer = get_random_question()
     quiz_state[chat_id] = answer
-    await update.message.reply_text(f"❓ **문제**\n\n{question}\n\n'정답' 이라고 하면 답을 알려드릴게요!")
+    await update.message.reply_text(f"❓ 문제\n━━━━━━━━━━━━━━━\n{question}\n\n'정답' 이라고 하면 답을 알려드릴게요!")
 
 async def terms_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     result = get_all_terms()
