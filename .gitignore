@@ -13,6 +13,9 @@ ENV/
 # 사용자 설정
 security_user_settings.json
 
+# Claude Code
+.claude/
+
 # IDE
 .vscode/
 .idea/

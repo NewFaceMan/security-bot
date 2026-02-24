@@ -3,8 +3,8 @@ import json
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-import google.generativeai as genai
-from news_tool import get_daily_briefing, get_news_with_links, get_cve_details, get_recent_cves
+from google import genai
+from news_tool import get_daily_briefing, get_news_with_links, get_cve_details, get_recent_cves, get_single_cve
 from study_tool import (
     get_random_question, get_question_categories, 
     get_term_definition, get_tool_guide, get_all_terms, get_all_tools,
@@ -24,8 +24,8 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 USER_SETTINGS_FILE = "security_user_settings.json"
 
 # Gemini 설정
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-2.0-flash')
+gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+GEMINI_MODEL = 'gemini-2.0-flash'
 
 # 스케줄러
 scheduler = AsyncIOScheduler(timezone="Asia/Seoul")
@@ -44,6 +44,8 @@ SYSTEM_PROMPT = """너는 DFIR/보안 학습 도우미야.
 - 보안 뉴스: [ACTION:NEWS]
 - 상세 뉴스 (링크 포함): [ACTION:NEWS_DETAIL]
 - CVE 정보: [ACTION:CVE]
+- CVE 상세 분석 (AI 요약/대처/학습): [ACTION:CVE_ANALYSIS]
+- 특정 CVE 분석: [ACTION:CVE_ANALYSIS|CVE-XXXX-XXXXX]
 - 일일 브리핑: [ACTION:BRIEFING]
 - DFIR 퀴즈: [ACTION:QUIZ]
 - 특정 분야 퀴즈: [ACTION:QUIZ|분야명]
@@ -62,6 +64,9 @@ SYSTEM_PROMPT = """너는 DFIR/보안 학습 도우미야.
 [예시]
 - "보안 뉴스 알려줘" → [ACTION:NEWS]
 - "CVE 알려줘" → [ACTION:CVE]
+- "CVE 분석해줘" → [ACTION:CVE_ANALYSIS]
+- "CVE-2024-12345 분석" → [ACTION:CVE_ANALYSIS|CVE-2024-12345]
+- "최근 취약점 상세 분석" → [ACTION:CVE_ANALYSIS]
 - "문제 내줘" → [ACTION:QUIZ]
 - "윈도우 문제" → [ACTION:QUIZ|윈도우]
 - "IOC가 뭐야?" → [ACTION:TERM|IOC]
@@ -70,6 +75,7 @@ SYSTEM_PROMPT = """너는 DFIR/보안 학습 도우미야.
 - "lateral movement 설명해줘" → [ACTION:TERM|lateral movement]
 
 보안/포렌식 관련 일반 질문은 직접 친절하게 답변해줘.
+절대 마크다운(**, ##, ``` 등)을 사용하지 마. 일반 텍스트로만 답변해.
 """
 
 def load_user_settings():
@@ -97,6 +103,85 @@ def set_user_setting(chat_id, key, value):
     settings[chat_id][key] = value
     save_user_settings(settings)
 
+CVE_ANALYSIS_PROMPT = """당신은 사이버보안 전문가입니다. 아래 CVE 정보를 분석해서 정해진 형식으로 응답하세요.
+
+[CVE 정보]
+- CVE ID: {cve_id}
+- CVSS 점수: {score}
+- 공격 벡터: {attack_vector}
+- 공격 복잡도: {attack_complexity}
+- CWE: {cwe}
+- 설명: {description}
+
+[응답 형식 - 아래 형식을 정확히 지켜주세요]
+
+📋 3줄 요약
+1. (이 취약점이 무엇인지 한 줄)
+2. (어떤 영향을 끼치는지 한 줄)
+3. (위험도와 공격 가능성 한 줄)
+
+🛡️ 대처 방안
+• (즉시 해야 할 조치)
+• (패치/업데이트 관련)
+• (임시 완화 조치)
+• (모니터링/탐지 방법)
+
+📚 학습 포인트
+• (이 CVE에서 배울 수 있는 보안 개념)
+• (관련된 공격 기법 - MITRE ATT&CK 매핑 가능하면 포함)
+• (방어자 관점에서의 교훈)
+• (유사 취약점 예방을 위한 개발/운영 팁)
+
+한국어로 답변하고, 각 항목은 구체적이고 실용적으로 작성하세요.
+절대 마크다운(**, ##, ``` 등)을 사용하지 마세요. 일반 텍스트로만 작성하세요.
+"""
+
+
+async def analyze_cve_with_ai(cve_data):
+    """Gemini AI로 CVE 상세 분석"""
+    try:
+        prompt = CVE_ANALYSIS_PROMPT.format(
+            cve_id=cve_data['id'],
+            score=cve_data['score'],
+            attack_vector=cve_data.get('attack_vector', 'N/A'),
+            attack_complexity=cve_data.get('attack_complexity', 'N/A'),
+            cwe=', '.join(cve_data.get('cwe', [])) or 'N/A',
+            description=cve_data['description']
+        )
+
+        response = gemini_client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
+        if response.candidates and response.candidates[0].content.parts:
+            return response.text.strip()
+        return None
+    except Exception as e:
+        print(f"CVE AI 분석 오류: {e}")
+        return None
+
+
+async def get_cve_full_analysis(limit=3):
+    """CVE 목록 + AI 상세 분석 통합"""
+    cves = get_recent_cves(limit)
+
+    if not cves:
+        return "최근 주요 CVE가 없습니다."
+
+    results = []
+    for cve in cves:
+        header = (
+            f"🔴 {cve['id']} (CVSS: {cve['score']})\n"
+            f"🔗 {cve['link']}\n"
+            f"━━━━━━━━━━━━━━━\n"
+        )
+
+        ai_analysis = await analyze_cve_with_ai(cve)
+        if ai_analysis:
+            results.append(header + ai_analysis)
+        else:
+            results.append(header + f"{cve['description_short']}...\n(AI 분석 실패)")
+
+    return results
+
+
 async def send_daily_security_briefing():
     """매일 보안 브리핑 전송"""
     global bot_instance
@@ -120,18 +205,24 @@ async def check_critical_cve():
     critical_cves = [c for c in cves if c['score'] >= 9.0]
     
     if critical_cves:
+        # AI 분석 포함한 긴급 알림 생성
+        analyzed_msgs = []
+        for cve in critical_cves:
+            header = f"🚨 긴급 CVE 알림\n━━━━━━━━━━━━━━━\n\n🔴 {cve['id']} (CVSS: {cve['score']})\n🔗 {cve['link']}\n\n"
+            ai_analysis = await analyze_cve_with_ai(cve)
+            if ai_analysis:
+                analyzed_msgs.append(header + ai_analysis)
+            else:
+                analyzed_msgs.append(header + f"{cve['description'][:200]}...\n")
+
         for chat_id, user_settings in settings.items():
             if user_settings.get('alert_enabled', False):
-                msg = "🚨 긴급 CVE 알림\n━━━━━━━━━━━━━━━\n\n"
-                for cve in critical_cves:
-                    msg += f"🔴 {cve['id']} (CVSS: {cve['score']})\n"
-                    msg += f"{cve['description'][:100]}...\n\n"
-                
                 if bot_instance:
-                    try:
-                        await bot_instance.send_message(chat_id=int(chat_id), text=msg)
-                    except:
-                        pass
+                    for msg in analyzed_msgs:
+                        try:
+                            await bot_instance.send_message(chat_id=int(chat_id), text=msg)
+                        except:
+                            pass
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -142,7 +233,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "━━━━━━━━━━━━━━━\n\n"
         "📰 뉴스 & 정보\n"
         "• 보안 뉴스 / 뉴스 상세\n"
-        "• CVE 알려줘\n"
+        "• CVE 알려줘 (목록)\n"
+        "• CVE 분석해줘 (AI 상세 분석)\n"
+        "• CVE-XXXX-XXXXX 분석 (특정 CVE)\n"
         "• 브리핑\n\n"
         "📚 학습\n"
         "• 문제 내줘 (DFIR 퀴즈)\n"
@@ -163,7 +256,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prompt = SYSTEM_PROMPT + f"\n\n사용자: {user_message}"
     
     try:
-        response = model.generate_content(prompt)
+        response = gemini_client.models.generate_content(model=GEMINI_MODEL, contents=prompt)
         
         if not response.candidates or not response.candidates[0].content.parts:
             await update.message.reply_text("죄송해요, 이해하지 못했어요. 다시 말씀해주세요.")
@@ -175,15 +268,44 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # 액션 파싱
         if '[ACTION:NEWS_DETAIL]' in ai_response:
             result = get_news_with_links()
-            await update.message.reply_text(result, parse_mode='Markdown', disable_web_page_preview=True)
+            await update.message.reply_text(result, disable_web_page_preview=True)
         
         elif '[ACTION:NEWS]' in ai_response:
             result = get_daily_briefing()
             await update.message.reply_text(result)
         
+        elif '[ACTION:CVE_ANALYSIS|' in ai_response:
+            # 특정 CVE ID 분석
+            target_cve_id = ai_response.split('[ACTION:CVE_ANALYSIS|')[1].split(']')[0].strip()
+            await update.message.reply_text(f"🔍 {target_cve_id} 분석 중... 잠시만 기다려주세요.")
+            cve_data = get_single_cve(target_cve_id)
+            if cve_data:
+                header = (
+                    f"🔴 {cve_data['id']} (CVSS: {cve_data['score']})\n"
+                    f"🔗 {cve_data['link']}\n"
+                    f"━━━━━━━━━━━━━━━\n"
+                )
+                ai_analysis = await analyze_cve_with_ai(cve_data)
+                if ai_analysis:
+                    await update.message.reply_text(header + ai_analysis, disable_web_page_preview=True)
+                else:
+                    await update.message.reply_text(header + cve_data['description'], disable_web_page_preview=True)
+            else:
+                await update.message.reply_text(f"❌ {target_cve_id}를 찾을 수 없습니다. CVE ID를 확인해주세요.")
+
+        elif '[ACTION:CVE_ANALYSIS]' in ai_response:
+            # 최근 CVE 전체 분석
+            await update.message.reply_text("🔍 최근 고위험 CVE를 분석 중... 잠시만 기다려주세요.")
+            results = await get_cve_full_analysis(limit=3)
+            if isinstance(results, str):
+                await update.message.reply_text(results)
+            else:
+                for result in results:
+                    await update.message.reply_text(result, disable_web_page_preview=True)
+
         elif '[ACTION:CVE]' in ai_response:
             result = get_cve_details()
-            await update.message.reply_text(result, parse_mode='Markdown', disable_web_page_preview=True)
+            await update.message.reply_text(result, disable_web_page_preview=True)
         
         elif '[ACTION:BRIEFING]' in ai_response:
             result = get_daily_briefing()
@@ -216,7 +338,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 # Gemini한테 직접 물어보기
                 term_prompt = f"보안/포렌식 용어 '{term}'에 대해 간단히 설명해줘. 2-3문장으로."
-                term_response = model.generate_content(term_prompt)
+                term_response = gemini_client.models.generate_content(model=GEMINI_MODEL, contents=term_prompt)
                 await update.message.reply_text(f"📖 {term}\n━━━━━━━━━━━━━━━\n{term_response.text}")
         
         elif '[ACTION:TOOL|' in ai_response:
@@ -226,7 +348,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(result)
             else:
                 tool_prompt = f"보안/포렌식 도구 '{tool}'의 기본 사용법을 간단히 알려줘."
-                tool_response = model.generate_content(tool_prompt)
+                tool_response = gemini_client.models.generate_content(model=GEMINI_MODEL, contents=tool_prompt)
                 await update.message.reply_text(f"🔧 {tool}\n━━━━━━━━━━━━━━━\n{tool_response.text}")
         
         elif '[ACTION:TERM_LIST]' in ai_response:
@@ -266,7 +388,7 @@ async def news_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cve_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     result = get_cve_details()
-    await update.message.reply_text(result, parse_mode='Markdown', disable_web_page_preview=True)
+    await update.message.reply_text(result, disable_web_page_preview=True)
 
 async def quiz_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id

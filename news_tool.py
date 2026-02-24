@@ -165,12 +165,34 @@ def get_recent_cves(limit=5, severity="HIGH"):
             base_score = cvss_data.get('cvssData', {}).get('baseScore', 0)
             
             if base_score >= 7.0:  # HIGH 이상만
-                desc = cve.get('descriptions', [{}])[0].get('value', '')[:200]
+                desc = cve.get('descriptions', [{}])[0].get('value', '')
+                # 영문 설명 우선, 없으면 첫 번째 설명
+                for d in cve.get('descriptions', []):
+                    if d.get('lang') == 'en':
+                        desc = d.get('value', '')
+                        break
+
+                # CWE (취약점 유형) 추출
+                weaknesses = cve.get('weaknesses', [])
+                cwe_ids = []
+                for w in weaknesses:
+                    for wd in w.get('description', []):
+                        if wd.get('value', '').startswith('CWE-'):
+                            cwe_ids.append(wd['value'])
+
+                # 공격 벡터 정보 추출
+                attack_vector = cvss_data.get('cvssData', {}).get('attackVector', '')
+                attack_complexity = cvss_data.get('cvssData', {}).get('attackComplexity', '')
+
                 cves.append({
                     'id': cve_id,
                     'score': base_score,
                     'description': desc,
-                    'link': f"https://nvd.nist.gov/vuln/detail/{cve_id}"
+                    'description_short': desc[:200],
+                    'link': f"https://nvd.nist.gov/vuln/detail/{cve_id}",
+                    'cwe': cwe_ids,
+                    'attack_vector': attack_vector,
+                    'attack_complexity': attack_complexity,
                 })
         
         # 점수 높은 순 정렬
@@ -263,7 +285,7 @@ def get_news_with_links(source="all", limit=5):
     return result if result else "뉴스를 가져오지 못했습니다."
 
 def get_cve_details(limit=5):
-    """CVE 상세 정보"""
+    """CVE 상세 정보 (간단 목록)"""
     cves = get_recent_cves(limit)
 
     if not cves:
@@ -272,7 +294,61 @@ def get_cve_details(limit=5):
     result = "🚨 최근 주요 CVE (CVSS 7.0+)\n━━━━━━━━━━━━━━━\n\n"
     for cve in cves:
         result += f"🔴 {cve['id']} (CVSS: {cve['score']})\n"
-        result += f"{cve['description'][:150]}...\n"
+        result += f"{cve['description_short']}...\n"
         result += f"🔗 {cve['link']}\n\n"
 
+    result += "💡 'CVE 분석해줘' 또는 'CVE-XXXX-XXXXX 분석'으로\n"
+    result += "   AI 상세 분석을 받아볼 수 있어요!"
     return result
+
+
+def get_single_cve(cve_id):
+    """특정 CVE ID로 단일 CVE 상세 정보 조회"""
+    try:
+        url = "https://services.nvd.nist.gov/rest/json/cves/2.0"
+        params = {'cveId': cve_id}
+
+        response = requests.get(url, params=params, timeout=15)
+        data = response.json()
+
+        vulns = data.get('vulnerabilities', [])
+        if not vulns:
+            return None
+
+        cve = vulns[0].get('cve', {})
+        metrics = cve.get('metrics', {})
+        cvss_data = metrics.get('cvssMetricV31', [{}])[0] if metrics.get('cvssMetricV31') else {}
+        base_score = cvss_data.get('cvssData', {}).get('baseScore', 0)
+
+        desc = ''
+        for d in cve.get('descriptions', []):
+            if d.get('lang') == 'en':
+                desc = d.get('value', '')
+                break
+        if not desc:
+            desc = cve.get('descriptions', [{}])[0].get('value', '')
+
+        weaknesses = cve.get('weaknesses', [])
+        cwe_ids = []
+        for w in weaknesses:
+            for wd in w.get('description', []):
+                if wd.get('value', '').startswith('CWE-'):
+                    cwe_ids.append(wd['value'])
+
+        attack_vector = cvss_data.get('cvssData', {}).get('attackVector', '')
+        attack_complexity = cvss_data.get('cvssData', {}).get('attackComplexity', '')
+
+        return {
+            'id': cve.get('id', cve_id),
+            'score': base_score,
+            'description': desc,
+            'description_short': desc[:200],
+            'link': f"https://nvd.nist.gov/vuln/detail/{cve_id}",
+            'cwe': cwe_ids,
+            'attack_vector': attack_vector,
+            'attack_complexity': attack_complexity,
+        }
+
+    except Exception as e:
+        print(f"CVE 조회 오류: {e}")
+        return None
